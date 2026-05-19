@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tickr - Daily Stock Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">
+          <span class="brand-mark">T</span>
+          <span class="brand-name">Tickr</span>
+        </div>
+
+        <form id="add-form" class="add-form" autocomplete="off">
+          <input
+            id="ticker-input"
+            name="ticker"
+            type="text"
+            placeholder="Add ticker (e.g. MSFT)"
+            maxlength="10"
+            spellcheck="false"
+            aria-label="Add a ticker">
+          <button type="submit">Add</button>
+        </form>
+
+        <button id="refresh-all" class="refresh-btn" type="button" title="Refresh all cards">
+          Refresh all
+        </button>
+      </div>
+      <div id="status-line" class="status-line" aria-live="polite"></div>
+    </header>
+
+    <main class="dashboard">
+      <div id="empty-state" class="empty-state" hidden>
+        <h2>No tickers yet</h2>
+        <p>Type a ticker symbol above (like <code>AAPL</code>, <code>NVDA</code>, or <code>TSLA</code>) and press Add.</p>
+      </div>
+
+      <div id="cards" class="cards-grid"></div>
+    </main>
+
+    <footer class="footer">
+      <p>
+        Data sources: Finnhub (price), NewsAPI (headlines), Reddit r/wallstreetbets+stocks+investing,
+        Gemini (sentiment). Cached for 10 minutes per ticker. Not financial advice.
+      </p>
+    </footer>
+
+    <!-- Card template, cloned for each ticker -->
+    <template id="card-template">
+      <article class="card" data-state="loading">
+        <header class="card-header">
+          <div class="card-title">
+            <span class="ticker"></span>
+            <span class="company-name"></span>
+          </div>
+          <button class="remove-btn" type="button" aria-label="Remove ticker" title="Remove">×</button>
+        </header>
+
+        <div class="price-row">
+          <span class="price">--</span>
+          <span class="price-change">--</span>
+        </div>
+
+        <div class="sentiment-row">
+          <span class="sentiment-badge">--</span>
+          <span class="sentiment-score"></span>
+          <button class="card-refresh" type="button" title="Refresh this card">↻</button>
+        </div>
+
+        <p class="ai-summary">Loading...</p>
+
+        <div class="card-section">
+          <h3>Top headlines</h3>
+          <ul class="headlines-list"></ul>
+        </div>
+
+        <div class="card-section">
+          <h3>From Reddit</h3>
+          <ul class="reddit-list"></ul>
+        </div>
+
+        <p class="card-footer-text"></p>
+      </article>
+    </template>
+
+    <script src="app.js"></script>
+  </body>
+</html>
