@@ -6,6 +6,13 @@ Built for UCLA Anderson MGMT298D (Science and Strategy of AI), Product Sprint.
 
 **Live demo:** https://tickr-production-2ac9.up.railway.app
 
+## Team
+
+- Iyayi Agbontaen
+- Issac Wurth
+- Rachel Stewart
+- Sreeja Kadari
+
 ---
 
 ## What it does
