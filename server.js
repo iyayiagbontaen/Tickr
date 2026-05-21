@@ -76,14 +76,16 @@ app.get('/api/ticker/:symbol', async (req, res) => {
 
   // Fetch data sources in parallel. Each can fail independently
   // and the card will still render with whatever did succeed.
-  const [quote, profile, headlines, redditPosts] = await Promise.all([
+  const [quote, profile, headlines, redditPosts, sparkline] = await Promise.all([
     fetchFinnhubQuote(symbol),
     fetchFinnhubProfile(symbol),
     fetchNewsHeadlines(symbol),
-    fetchRedditPosts(symbol)
+    fetchRedditPosts(symbol),
+    fetchSparkline(symbol)
   ]);
 
   const company_name = profile?.name || symbol;
+  const logo_url = profile?.logo || null;
 
   const aiAnalysis = await analyzeWithGemini({
     ticker: symbol,
@@ -95,7 +97,9 @@ app.get('/api/ticker/:symbol', async (req, res) => {
   const payload = {
     ticker: symbol,
     company_name,
+    logo_url,
     price: quote,
+    sparkline,
     headlines,
     reddit: redditPosts,
     ai: aiAnalysis,
@@ -172,6 +176,25 @@ async function fetchNewsHeadlines(symbol) {
     return { items };
   } catch (e) {
     return { error: e.message || 'NewsAPI fetch failed', items: [] };
+  }
+}
+
+async function fetchSparkline(symbol) {
+  // Pull ~1 month of daily close prices from Yahoo Finance's unofficial chart endpoint.
+  // Used only for the tiny trend chart on each card. Falls back gracefully if blocked.
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1mo`;
+    const r = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 TickrDashboard/0.1 (school project)' }
+    });
+    if (!r.ok) return { error: `Yahoo returned ${r.status}`, points: [] };
+    const j = await r.json();
+    const result = j?.chart?.result?.[0];
+    const closes = result?.indicators?.quote?.[0]?.close || [];
+    const points = closes.filter((c) => typeof c === 'number' && isFinite(c));
+    return { points };
+  } catch (e) {
+    return { error: e.message || 'Sparkline fetch failed', points: [] };
   }
 }
 

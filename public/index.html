@@ -29,6 +29,9 @@
         <button id="refresh-all" class="refresh-btn" type="button" title="Refresh all cards">
           Refresh all
         </button>
+        <button id="theme-toggle" class="icon-btn" type="button" title="Toggle dark mode" aria-label="Toggle dark mode">
+          <span class="theme-icon">🌙</span>
+        </button>
       </div>
       <div id="status-line" class="status-line" aria-live="polite"></div>
     </header>
@@ -54,33 +57,60 @@
       <article class="card" data-state="loading">
         <header class="card-header">
           <div class="card-title">
-            <span class="ticker"></span>
-            <span class="company-name"></span>
+            <div class="logo-wrap">
+              <img class="company-logo" alt="" loading="lazy">
+              <span class="logo-fallback"></span>
+            </div>
+            <div class="title-text">
+              <span class="ticker"></span>
+              <span class="company-name skeleton-line"></span>
+            </div>
           </div>
           <button class="remove-btn" type="button" aria-label="Remove ticker" title="Remove">×</button>
         </header>
 
         <div class="price-row">
-          <span class="price">--</span>
-          <span class="price-change">--</span>
+          <div class="price-block">
+            <span class="price skeleton-line"></span>
+            <span class="price-change skeleton-line"></span>
+          </div>
+          <svg class="sparkline" viewBox="0 0 120 36" preserveAspectRatio="none" aria-hidden="true">
+            <path class="sparkline-area" d=""></path>
+            <path class="sparkline-line" d=""></path>
+          </svg>
         </div>
 
         <div class="sentiment-row">
-          <span class="sentiment-badge">--</span>
-          <span class="sentiment-score"></span>
+          <div class="sentiment-gauge" aria-hidden="true">
+            <svg viewBox="0 0 100 60">
+              <path class="gauge-track" d="M 10 50 A 40 40 0 0 1 90 50" />
+              <path class="gauge-fill"  d="M 10 50 A 40 40 0 0 1 90 50" />
+              <line class="gauge-needle" x1="50" y1="50" x2="50" y2="14" />
+              <circle class="gauge-pivot" cx="50" cy="50" r="3" />
+            </svg>
+          </div>
+          <div class="sentiment-text">
+            <span class="sentiment-badge">--</span>
+            <span class="sentiment-score"></span>
+          </div>
           <button class="card-refresh" type="button" title="Refresh this card">↻</button>
         </div>
 
-        <p class="ai-summary">Loading...</p>
+        <p class="ai-summary"><span class="skeleton-line"></span><span class="skeleton-line"></span><span class="skeleton-line short"></span></p>
 
         <div class="card-section">
           <h3>Top headlines</h3>
-          <ul class="headlines-list"></ul>
+          <ul class="headlines-list">
+            <li class="skeleton-line"></li>
+            <li class="skeleton-line"></li>
+          </ul>
         </div>
 
         <div class="card-section">
           <h3>From Reddit</h3>
-          <ul class="reddit-list"></ul>
+          <ul class="reddit-list">
+            <li class="skeleton-line"></li>
+          </ul>
         </div>
 
         <p class="card-footer-text"></p>

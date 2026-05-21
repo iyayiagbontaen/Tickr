@@ -3,10 +3,10 @@
    White / navy / blue-accent palette per AppPlan section 6
    ========================================================================= */
 
-:root {
-  --bg: #ffffff;
+:root, :root[data-theme="light"] {
+  --bg: #f7f8fa;
   --surface: #ffffff;
-  --surface-alt: #f7f8fa;
+  --surface-alt: #f0f2f6;
   --border: #e3e6ec;
   --ink: #0f2742;          /* navy headers */
   --ink-soft: #3b4a63;
@@ -21,9 +21,36 @@
   --bear-fg: #991b1b;
   --neutral-bg: #e5e7eb;
   --neutral-fg: #374151;
-  --radius: 10px;
-  --shadow: 0 1px 3px rgba(15, 39, 66, 0.06), 0 1px 2px rgba(15, 39, 66, 0.04);
+  --skeleton-base: #e7eaf0;
+  --skeleton-shimmer: #f3f5f9;
+  --radius: 12px;
+  --shadow: 0 1px 3px rgba(15, 39, 66, 0.08), 0 4px 12px rgba(15, 39, 66, 0.04);
 }
+
+:root[data-theme="dark"] {
+  --bg: #0b1220;
+  --surface: #131c2e;
+  --surface-alt: #1a2438;
+  --border: #25304a;
+  --ink: #e8edf6;
+  --ink-soft: #b6c1d4;
+  --muted: #8a95ab;
+  --accent: #60a5fa;
+  --accent-dark: #3b82f6;
+  --up: #22c55e;
+  --down: #ef4444;
+  --bull-bg: rgba(34, 197, 94, 0.15);
+  --bull-fg: #4ade80;
+  --bear-bg: rgba(239, 68, 68, 0.15);
+  --bear-fg: #f87171;
+  --neutral-bg: rgba(148, 163, 184, 0.15);
+  --neutral-fg: #cbd5e1;
+  --skeleton-base: #1f2a40;
+  --skeleton-shimmer: #2a374f;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+html { transition: background-color 0.2s ease, color 0.2s ease; }
 
 * { box-sizing: border-box; }
 
@@ -394,3 +421,187 @@ body {
   font-size: 12px;
   line-height: 1.5;
 }
+
+/* =========================================================================
+   v2 upgrades: logos, sparklines, sentiment gauge, dark mode, skeletons
+   ========================================================================= */
+
+/* ---------- Theme toggle button ---------- */
+.icon-btn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+}
+.icon-btn:hover { background: var(--surface-alt); }
+
+/* ---------- Card layout tweaks ---------- */
+.card {
+  animation: cardIn 0.32s ease both;
+}
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+body { background: var(--bg); transition: background-color 0.2s ease, color 0.2s ease; }
+.topbar { background: var(--surface); transition: background-color 0.2s ease, border-color 0.2s ease; }
+.card { transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, opacity 0.15s ease; }
+
+/* ---------- Title row with logo ---------- */
+.card-title {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.title-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.logo-wrap {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  display: inline-grid;
+  place-items: center;
+  overflow: hidden;
+  position: relative;
+}
+.company-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 4px;
+  background: #fff;
+}
+.logo-fallback {
+  font-weight: 700;
+  color: var(--ink);
+  font-size: 16px;
+}
+
+/* ---------- Price row + sparkline ---------- */
+.price-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.price-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.sparkline {
+  flex-shrink: 0;
+  width: 120px;
+  height: 36px;
+  overflow: visible;
+}
+.sparkline-line {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.sparkline-area { fill: var(--muted); opacity: 0.1; }
+.sparkline[data-direction="up"] .sparkline-line { stroke: var(--up); }
+.sparkline[data-direction="up"] .sparkline-area { fill: var(--up); }
+.sparkline[data-direction="down"] .sparkline-line { stroke: var(--down); }
+.sparkline[data-direction="down"] .sparkline-area { fill: var(--down); }
+
+/* ---------- Sentiment gauge ---------- */
+.sentiment-row {
+  align-items: center;
+}
+.sentiment-gauge {
+  width: 64px;
+  height: 38px;
+  flex-shrink: 0;
+}
+.sentiment-gauge svg { width: 100%; height: 100%; overflow: visible; }
+.gauge-track {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 8;
+  stroke-linecap: round;
+}
+.gauge-fill {
+  fill: none;
+  stroke: var(--neutral-fg);
+  stroke-width: 8;
+  stroke-linecap: round;
+  stroke-dasharray: 126;
+  stroke-dashoffset: 0;
+  opacity: 0.6;
+  transition: stroke 0.3s ease;
+}
+.sentiment-gauge[data-sentiment="bullish"] .gauge-fill { stroke: var(--up); opacity: 1; }
+.sentiment-gauge[data-sentiment="bearish"] .gauge-fill { stroke: var(--down); opacity: 1; }
+.gauge-needle {
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linecap: round;
+  transform-origin: 50px 50px;
+  transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.gauge-pivot { fill: var(--ink); }
+
+.sentiment-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* ---------- Skeleton loading ---------- */
+.skeleton-line {
+  display: inline-block;
+  min-height: 10px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--skeleton-base) 0%, var(--skeleton-shimmer) 50%, var(--skeleton-base) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  color: transparent;
+}
+.company-name.skeleton-line { width: 70%; min-height: 12px; }
+.price.skeleton-line { width: 80px; min-height: 22px; }
+.price-change.skeleton-line { width: 110px; min-height: 14px; }
+.ai-summary .skeleton-line { display: block; width: 100%; height: 12px; margin-bottom: 6px; }
+.ai-summary .skeleton-line.short { width: 60%; }
+.headlines-list li.skeleton-line,
+.reddit-list li.skeleton-line { width: 100%; min-height: 14px; }
+
+.card[data-state="ready"] .skeleton-line,
+.card[data-state="error"] .skeleton-line {
+  background: transparent;
+  animation: none;
+  color: inherit;
+  min-height: 0;
+}
+
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ---------- Dark mode: drop white logo backgrounds & soften brand mark ---------- */
+:root[data-theme="dark"] .company-logo { background: #fff; }
+:root[data-theme="dark"] .brand-mark { background: var(--accent); color: #fff; }

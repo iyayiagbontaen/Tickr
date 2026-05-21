@@ -13,6 +13,27 @@ const statusLine = document.getElementById('status-line');
 const addForm = document.getElementById('add-form');
 const tickerInput = document.getElementById('ticker-input');
 const refreshAllBtn = document.getElementById('refresh-all');
+const themeToggleBtn = document.getElementById('theme-toggle');
+
+// -------------------------------------------------------------------------
+// Theme (dark / light) -- persists in localStorage.
+// -------------------------------------------------------------------------
+const THEME_KEY = 'tickr_theme';
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  const icon = themeToggleBtn?.querySelector('.theme-icon');
+  if (icon) icon.textContent = theme === 'dark' ? '☀️' : '🌙';
+}
+function loadTheme() {
+  try { return localStorage.getItem(THEME_KEY) || 'light'; }
+  catch { return 'light'; }
+}
+applyTheme(loadTheme());
+themeToggleBtn?.addEventListener('click', () => {
+  const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  try { localStorage.setItem(THEME_KEY, next); } catch {}
+  applyTheme(next);
+});
 
 // In-memory map: ticker -> card element, used so we can re-render in place.
 const cardMap = new Map();
@@ -126,7 +147,6 @@ async function fetchTicker(ticker, force = false) {
   const card = cardMap.get(ticker);
   if (!card) return;
   card.dataset.state = 'loading';
-  card.querySelector('.ai-summary').textContent = 'Loading...';
 
   try {
     const url = `/api/ticker/${encodeURIComponent(ticker)}${force ? '?force=1' : ''}`;
@@ -157,6 +177,9 @@ function populateCard(card, data) {
     ? data.company_name
     : '';
 
+  // Logo + fallback letter
+  renderLogo(card, data);
+
   // Price + change
   const priceEl = card.querySelector('.price');
   const changeEl = card.querySelector('.price-change');
@@ -172,10 +195,15 @@ function populateCard(card, data) {
     changeEl.dataset.direction = 'flat';
   }
 
+  // Sparkline (last ~30 days of closing prices)
+  renderSparkline(card, data.sparkline?.points || []);
+
   // Sentiment
   const ai = data.ai || {};
   const badge = card.querySelector('.sentiment-badge');
   const scoreEl = card.querySelector('.sentiment-score');
+  let sentimentForGauge = 'neutral';
+  let scoreForGauge = 0;
   if (ai.error) {
     badge.textContent = 'no AI';
     badge.dataset.sentiment = 'neutral';
@@ -185,7 +213,10 @@ function populateCard(card, data) {
     badge.textContent = sentiment;
     badge.dataset.sentiment = sentiment;
     scoreEl.textContent = typeof ai.score === 'number' ? `score ${ai.score.toFixed(2)}` : '';
+    sentimentForGauge = sentiment;
+    if (typeof ai.score === 'number') scoreForGauge = ai.score;
   }
+  renderGauge(card, scoreForGauge, sentimentForGauge);
 
   // Summary + catalysts
   const summary = ai.error
@@ -252,6 +283,70 @@ function populateCard(card, data) {
   const cachedNote = data.cached ? ' (cached)' : '';
   card.querySelector('.card-footer-text').textContent =
     `Updated ${new Date(data.fetched_at).toLocaleTimeString()}${cachedNote}`;
+}
+
+// -------------------------------------------------------------------------
+// Visual helpers
+// -------------------------------------------------------------------------
+function renderLogo(card, data) {
+  const img = card.querySelector('.company-logo');
+  const fallback = card.querySelector('.logo-fallback');
+  fallback.textContent = (data.ticker || '?').charAt(0);
+  if (data.logo_url) {
+    img.src = data.logo_url;
+    img.alt = `${data.ticker} logo`;
+    img.hidden = false;
+    fallback.hidden = true;
+    img.onerror = () => {
+      img.hidden = true;
+      fallback.hidden = false;
+    };
+  } else {
+    img.hidden = true;
+    fallback.hidden = false;
+  }
+}
+
+function renderSparkline(card, points) {
+  const linePath = card.querySelector('.sparkline-line');
+  const areaPath = card.querySelector('.sparkline-area');
+  if (!linePath || !areaPath) return;
+  if (!points || points.length < 2) {
+    linePath.setAttribute('d', '');
+    areaPath.setAttribute('d', '');
+    return;
+  }
+  const W = 120, H = 36, PAD = 2;
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const range = max - min || 1;
+  const stepX = (W - PAD * 2) / (points.length - 1);
+
+  const coords = points.map((p, i) => {
+    const x = PAD + i * stepX;
+    const y = PAD + (H - PAD * 2) * (1 - (p - min) / range);
+    return [x, y];
+  });
+
+  const d = coords.map(([x, y], i) => `${i === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`).join(' ');
+  linePath.setAttribute('d', d);
+  const area = `${d} L ${coords[coords.length - 1][0].toFixed(2)} ${H} L ${coords[0][0].toFixed(2)} ${H} Z`;
+  areaPath.setAttribute('d', area);
+
+  // Color sparkline by overall direction (first vs last point).
+  const dir = points[points.length - 1] >= points[0] ? 'up' : 'down';
+  card.querySelector('.sparkline').dataset.direction = dir;
+}
+
+function renderGauge(card, score, sentiment) {
+  // Map score (-1..1) to needle angle (-90deg .. +90deg, where 0 = straight up).
+  const clamped = Math.max(-1, Math.min(1, score || 0));
+  const angle = clamped * 90;
+  const needle = card.querySelector('.gauge-needle');
+  if (needle) needle.style.transform = `rotate(${angle}deg)`;
+
+  const gauge = card.querySelector('.sentiment-gauge');
+  if (gauge) gauge.dataset.sentiment = sentiment || 'neutral';
 }
 
 // -------------------------------------------------------------------------
