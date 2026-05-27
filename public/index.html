@@ -37,9 +37,39 @@
     </header>
 
     <main class="dashboard">
+      <div id="heatmap" class="heatmap" hidden aria-label="Watchlist heatmap"></div>
+
+      <section id="market-pulse" class="market-pulse" data-state="idle" hidden>
+        <div class="pulse-header">
+          <div class="pulse-title">
+            <span class="pulse-eyebrow">Market Pulse</span>
+            <span class="pulse-mood-badge" data-mood="neutral">--</span>
+          </div>
+          <button id="pulse-refresh" class="pulse-refresh" type="button" title="Re-synthesize pulse">↻</button>
+        </div>
+        <p class="pulse-summary">
+          <span class="skeleton-line"></span>
+          <span class="skeleton-line"></span>
+          <span class="skeleton-line short"></span>
+        </p>
+        <div class="pulse-themes" aria-label="Trending themes"></div>
+        <p class="pulse-notable"></p>
+        <p class="pulse-footer-text"></p>
+      </section>
+
       <div id="empty-state" class="empty-state" hidden>
         <h2>No tickers yet</h2>
-        <p>Type a ticker symbol above (like <code>AAPL</code>, <code>NVDA</code>, or <code>TSLA</code>) and press Add.</p>
+        <p>Add one to get started:</p>
+        <div class="starter-chips">
+          <button class="starter-chip" data-ticker="AAPL" type="button">AAPL</button>
+          <button class="starter-chip" data-ticker="NVDA" type="button">NVDA</button>
+          <button class="starter-chip" data-ticker="TSLA" type="button">TSLA</button>
+          <button class="starter-chip" data-ticker="MSFT" type="button">MSFT</button>
+          <button class="starter-chip" data-ticker="GOOGL" type="button">GOOGL</button>
+          <button class="starter-chip" data-ticker="AMZN" type="button">AMZN</button>
+          <button class="starter-chip" data-ticker="META" type="button">META</button>
+        </div>
+        <p class="empty-hint">Or type any ticker symbol above and press Add.</p>
       </div>
 
       <div id="cards" class="cards-grid"></div>
@@ -111,6 +141,15 @@
           <ul class="reddit-list">
             <li class="skeleton-line"></li>
           </ul>
+        </div>
+
+        <div class="card-section ask-section">
+          <h3>Ask Tickr</h3>
+          <div class="ask-history" role="log" aria-live="polite"></div>
+          <form class="ask-form" autocomplete="off">
+            <input class="ask-input" type="text" placeholder="Why is it moving today?" maxlength="500" aria-label="Ask a question about this ticker">
+            <button class="ask-submit" type="submit" aria-label="Send question">↑</button>
+          </form>
         </div>
 
         <p class="card-footer-text"></p>

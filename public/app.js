@@ -38,6 +38,23 @@ themeToggleBtn?.addEventListener('click', () => {
 // In-memory map: ticker -> card element, used so we can re-render in place.
 const cardMap = new Map();
 
+// Per-ticker chat history -- {role: 'user'|'model', text: string}[]. Session-only.
+const chatHistory = new Map();
+
+// Heatmap container -- one tile per ticker, colored by day change.
+const heatmapEl = document.getElementById('heatmap');
+const heatmapTiles = new Map(); // ticker -> tile element
+
+// Market Pulse elements
+const pulsePanel = document.getElementById('market-pulse');
+const pulseSummaryEl = pulsePanel?.querySelector('.pulse-summary');
+const pulseThemesEl = pulsePanel?.querySelector('.pulse-themes');
+const pulseNotableEl = pulsePanel?.querySelector('.pulse-notable');
+const pulseMoodBadge = pulsePanel?.querySelector('.pulse-mood-badge');
+const pulseFooterEl = pulsePanel?.querySelector('.pulse-footer-text');
+const pulseRefreshBtn = document.getElementById('pulse-refresh');
+pulseRefreshBtn?.addEventListener('click', () => fetchPulse());
+
 // -------------------------------------------------------------------------
 // Watchlist storage
 // -------------------------------------------------------------------------
@@ -79,25 +96,39 @@ addForm.addEventListener('submit', (event) => {
   event.preventDefault();
   const raw = tickerInput.value.trim().toUpperCase();
   if (!raw) return;
+  if (addTicker(raw)) tickerInput.value = '';
+});
+
+refreshAllBtn.addEventListener('click', () => refreshAll(true));
+
+// Empty-state starter chips. Delegated click so we don't bind in three places.
+document.addEventListener('click', (event) => {
+  const chip = event.target.closest('.starter-chip');
+  if (!chip) return;
+  const ticker = (chip.dataset.ticker || '').toUpperCase();
+  if (ticker) addTicker(ticker);
+});
+
+function addTicker(rawIn) {
+  const raw = String(rawIn || '').trim().toUpperCase();
+  if (!raw) return false;
   if (!/^[A-Z][A-Z0-9.\-]{0,9}$/.test(raw)) {
     setStatus(`"${raw}" doesn't look like a valid ticker.`);
-    return;
+    return false;
   }
   const watchlist = loadWatchlist();
   if (watchlist.includes(raw)) {
     setStatus(`${raw} is already on your watchlist.`);
-    return;
+    return false;
   }
   watchlist.push(raw);
   saveWatchlist(watchlist);
-  tickerInput.value = '';
   setStatus(`Added ${raw}.`);
   showEmptyState(false);
   renderInitialCard(raw);
   fetchTicker(raw);
-});
-
-refreshAllBtn.addEventListener('click', () => refreshAll(true));
+  return true;
+}
 
 // -------------------------------------------------------------------------
 // Card rendering
@@ -110,8 +141,21 @@ function renderInitialCard(ticker) {
   node.querySelector('.company-name').textContent = '';
   node.querySelector('.remove-btn').addEventListener('click', () => removeTicker(ticker));
   node.querySelector('.card-refresh').addEventListener('click', () => fetchTicker(ticker, true));
+
+  // Ask Tickr chat form.
+  const askForm = node.querySelector('.ask-form');
+  const askInput = node.querySelector('.ask-input');
+  askForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const q = askInput.value.trim();
+    if (!q) return;
+    askInput.value = '';
+    submitAsk(ticker, q);
+  });
+
   cardsContainer.appendChild(node);
   cardMap.set(ticker, node);
+  chatHistory.set(ticker, []);
 }
 
 function removeTicker(ticker) {
@@ -122,8 +166,16 @@ function removeTicker(ticker) {
     node.remove();
     cardMap.delete(ticker);
   }
+  chatHistory.delete(ticker);
+  removeHeatmapTile(ticker);
   setStatus(`Removed ${ticker}.`);
-  if (list.length === 0) showEmptyState(true);
+  if (list.length === 0) {
+    showEmptyState(true);
+    hidePulse();
+    if (heatmapEl) heatmapEl.hidden = true;
+  } else {
+    fetchPulse();
+  }
 }
 
 function showEmptyState(show) {
@@ -163,10 +215,84 @@ async function fetchTicker(ticker, force = false) {
 
 async function refreshAll(force = false) {
   const list = loadWatchlist();
-  if (list.length === 0) return;
+  if (list.length === 0) {
+    hidePulse();
+    return;
+  }
   setStatus(force ? 'Refreshing all tickers...' : 'Loading tickers...');
   await Promise.all(list.map((t) => fetchTicker(t, force)));
   setStatus('Done.');
+  // Kick off the cross-watchlist pulse synthesis. Reuses cached ticker data.
+  fetchPulse();
+}
+
+// -------------------------------------------------------------------------
+// Market Pulse
+// -------------------------------------------------------------------------
+async function fetchPulse() {
+  if (!pulsePanel) return;
+  const list = loadWatchlist();
+  if (list.length === 0) {
+    hidePulse();
+    return;
+  }
+  showPulseLoading();
+  try {
+    const r = await fetch('/api/pulse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tickers: list })
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || `Server returned ${r.status}`);
+    if (j.error) throw new Error(j.error);
+    renderPulse(j);
+  } catch (e) {
+    pulsePanel.dataset.state = 'error';
+    pulseSummaryEl.textContent = `Pulse unavailable: ${e.message}`;
+    pulseThemesEl.innerHTML = '';
+    pulseNotableEl.textContent = '';
+    pulseFooterEl.textContent = '';
+  }
+}
+
+function showPulseLoading() {
+  pulsePanel.hidden = false;
+  pulsePanel.dataset.state = 'loading';
+  pulseSummaryEl.innerHTML = '<span class="skeleton-line"></span><span class="skeleton-line"></span><span class="skeleton-line short"></span>';
+  pulseThemesEl.innerHTML = '';
+  pulseNotableEl.textContent = '';
+  pulseFooterEl.textContent = '';
+  pulseMoodBadge.textContent = '...';
+  pulseMoodBadge.dataset.mood = 'neutral';
+}
+
+function hidePulse() {
+  if (!pulsePanel) return;
+  pulsePanel.hidden = true;
+}
+
+function renderPulse(data) {
+  pulsePanel.hidden = false;
+  pulsePanel.dataset.state = 'ready';
+  const mood = (data.mood || 'neutral').toLowerCase();
+  pulseMoodBadge.textContent = mood;
+  pulseMoodBadge.dataset.mood = mood;
+  pulseSummaryEl.textContent = data.summary || 'No pulse summary available.';
+
+  pulseThemesEl.innerHTML = '';
+  (data.themes || []).slice(0, 5).forEach((t) => {
+    const pill = document.createElement('span');
+    pill.className = 'pulse-theme-pill';
+    pill.textContent = t;
+    pulseThemesEl.appendChild(pill);
+  });
+
+  pulseNotableEl.textContent = data.notable && data.notable !== 'None notable.' ? data.notable : '';
+
+  const tickerCount = data.ticker_count || loadWatchlist().length;
+  const time = data.generated_at ? new Date(data.generated_at).toLocaleTimeString() : '';
+  pulseFooterEl.textContent = `Synthesized across ${tickerCount} ticker${tickerCount === 1 ? '' : 's'}${time ? ' at ' + time : ''}.`;
 }
 
 // -------------------------------------------------------------------------
@@ -189,10 +315,12 @@ function populateCard(card, data) {
     const sign = p.change >= 0 ? '+' : '';
     changeEl.textContent = `${sign}${formatNumber(p.change)} (${sign}${formatNumber(p.change_pct)}%)`;
     changeEl.dataset.direction = p.change >= 0 ? 'up' : 'down';
+    upsertHeatmapTile(data.ticker, p.change_pct, p.change);
   } else {
     priceEl.textContent = '--';
     changeEl.textContent = data.price?.error ? 'price unavailable' : '--';
     changeEl.dataset.direction = 'flat';
+    upsertHeatmapTile(data.ticker, null, null);
   }
 
   // Sparkline (last ~30 days of closing prices)
@@ -283,6 +411,108 @@ function populateCard(card, data) {
   const cachedNote = data.cached ? ' (cached)' : '';
   card.querySelector('.card-footer-text').textContent =
     `Updated ${new Date(data.fetched_at).toLocaleTimeString()}${cachedNote}`;
+}
+
+// -------------------------------------------------------------------------
+// Ask Tickr -- conversational chat per ticker
+// -------------------------------------------------------------------------
+async function submitAsk(ticker, question) {
+  const card = cardMap.get(ticker);
+  if (!card) return;
+  const historyEl = card.querySelector('.ask-history');
+  const submitBtn = card.querySelector('.ask-submit');
+  const inputEl = card.querySelector('.ask-input');
+
+  const history = chatHistory.get(ticker) || [];
+  appendChatBubble(historyEl, 'user', question);
+  const typingEl = appendTypingIndicator(historyEl);
+  submitBtn.disabled = true;
+  inputEl.disabled = true;
+
+  try {
+    const r = await fetch('/api/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticker, question, history })
+    });
+    const j = await r.json();
+    typingEl.remove();
+    if (!r.ok) throw new Error(j.error || `Server returned ${r.status}`);
+    const answer = j.answer || 'No response.';
+    appendChatBubble(historyEl, 'model', answer);
+    history.push({ role: 'user', text: question });
+    history.push({ role: 'model', text: answer });
+    // Cap history at last 10 turns to keep prompts manageable.
+    if (history.length > 20) history.splice(0, history.length - 20);
+    chatHistory.set(ticker, history);
+  } catch (e) {
+    typingEl.remove();
+    appendChatBubble(historyEl, 'error', `Could not get an answer: ${e.message}`);
+  } finally {
+    submitBtn.disabled = false;
+    inputEl.disabled = false;
+    inputEl.focus();
+  }
+}
+
+function appendChatBubble(container, role, text) {
+  const bubble = document.createElement('div');
+  bubble.className = `chat-bubble chat-${role}`;
+  bubble.textContent = text;
+  container.appendChild(bubble);
+  container.scrollTop = container.scrollHeight;
+}
+
+function appendTypingIndicator(container) {
+  const el = document.createElement('div');
+  el.className = 'chat-bubble chat-model chat-typing';
+  el.innerHTML = '<span></span><span></span><span></span>';
+  container.appendChild(el);
+  container.scrollTop = container.scrollHeight;
+  return el;
+}
+
+// -------------------------------------------------------------------------
+// Heatmap helpers
+// -------------------------------------------------------------------------
+function upsertHeatmapTile(ticker, changePct, changeAbs) {
+  if (!heatmapEl) return;
+  heatmapEl.hidden = false;
+
+  let tile = heatmapTiles.get(ticker);
+  if (!tile) {
+    tile = document.createElement('button');
+    tile.type = 'button';
+    tile.className = 'heatmap-tile';
+    tile.dataset.ticker = ticker;
+    tile.innerHTML = `<span class="ht-ticker"></span><span class="ht-change"></span>`;
+    tile.addEventListener('click', () => {
+      const card = cardMap.get(ticker);
+      if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    heatmapEl.appendChild(tile);
+    heatmapTiles.set(ticker, tile);
+  }
+
+  tile.querySelector('.ht-ticker').textContent = ticker;
+  const changeEl = tile.querySelector('.ht-change');
+
+  if (typeof changePct === 'number' && isFinite(changePct)) {
+    const sign = changePct >= 0 ? '+' : '';
+    changeEl.textContent = `${sign}${changePct.toFixed(2)}%`;
+    tile.dataset.direction = changeAbs === 0 ? 'flat' : (changeAbs > 0 ? 'up' : 'down');
+  } else {
+    changeEl.textContent = '--';
+    tile.dataset.direction = 'flat';
+  }
+}
+
+function removeHeatmapTile(ticker) {
+  const tile = heatmapTiles.get(ticker);
+  if (tile) {
+    tile.remove();
+    heatmapTiles.delete(ticker);
+  }
 }
 
 // -------------------------------------------------------------------------
