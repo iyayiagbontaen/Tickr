@@ -16,10 +16,26 @@ const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// In-memory cache, 10 minute TTL.
+// In-memory cache, 60 minute TTL.
+// Bumped from 10 min to 60 min to protect free-tier Gemini quota.
 // Resets whenever the server restarts -- that's fine for a school project.
-const CACHE_TTL_MS = 10 * 60 * 1000;
+const CACHE_TTL_MS = 60 * 60 * 1000;
 const cache = new Map(); // key: ticker (uppercased), value: {data, expires}
+
+// Translate Gemini's verbose error messages into something user-friendly.
+function cleanGeminiError(raw) {
+  const msg = String(raw || '');
+  if (/resource_exhausted|quota|429/i.test(msg)) {
+    return 'Daily AI quota reached. Resets in ~24h.';
+  }
+  if (/api[_\s]?key|unauthenticated|api key/i.test(msg)) {
+    return 'AI key not configured.';
+  }
+  if (/safety|blocked/i.test(msg)) {
+    return 'AI declined to answer (safety filter).';
+  }
+  return msg.slice(0, 120) || 'AI call failed.';
+}
 
 // =========================================================================
 // SYSTEM PROMPT
@@ -216,7 +232,7 @@ app.post('/api/pulse', async (req, res) => {
       });
     }
   } catch (e) {
-    return res.status(500).json({ error: e.message || 'Gemini call failed' });
+    return res.status(500).json({ error: cleanGeminiError(e.message) });
   }
 });
 
@@ -299,7 +315,7 @@ app.post('/api/ask', async (req, res) => {
       generated_at: new Date().toISOString()
     });
   } catch (e) {
-    return res.status(500).json({ error: e.message || 'Gemini call failed' });
+    return res.status(500).json({ error: cleanGeminiError(e.message) });
   }
 });
 
@@ -456,7 +472,7 @@ async function analyzeWithGemini({ ticker, company_name, headlines, reddit_posts
       };
     }
   } catch (e) {
-    return { error: e.message || 'Gemini call failed' };
+    return { error: cleanGeminiError(e.message) };
   }
 }
 
