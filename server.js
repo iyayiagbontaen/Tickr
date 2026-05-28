@@ -2,7 +2,6 @@ import dotenv from 'dotenv';
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { GoogleGenAI } from '@google/genai';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,35 +10,63 @@ dotenv.config({ path: path.join(__dirname, 'local.env') });
 
 const app = express();
 const port = process.env.PORT || 3000;
-const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+// Default to Llama 3.3 70B on Groq -- fast, free, generous daily quota.
+const modelName = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // In-memory cache, 60 minute TTL.
-// Bumped from 10 min to 60 min to protect free-tier Gemini quota.
 // Resets whenever the server restarts -- that's fine for a school project.
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const cache = new Map(); // key: ticker (uppercased), value: {data, expires}
 
-// Translate Gemini's verbose error messages into something user-friendly.
-function cleanGeminiError(raw) {
+// Translate AI provider errors into user-friendly messages.
+function cleanLLMError(raw) {
   const msg = String(raw || '');
-  if (/resource_exhausted|quota|429/i.test(msg)) {
-    return 'Daily AI quota reached. Resets in ~24h.';
+  if (/resource_exhausted|quota|429|rate.?limit/i.test(msg)) {
+    return 'AI rate limit reached. Try again in a moment.';
   }
-  if (/api[_\s]?key|unauthenticated|api key/i.test(msg)) {
+  if (/401|unauthorized|api[_\s]?key|invalid.*key/i.test(msg)) {
     return 'AI key not configured.';
   }
-  if (/safety|blocked/i.test(msg)) {
+  if (/safety|blocked|content.*filter/i.test(msg)) {
     return 'AI declined to answer (safety filter).';
   }
   return msg.slice(0, 120) || 'AI call failed.';
 }
 
+// Single helper for all Groq calls. Uses OpenAI-compatible chat completions.
+async function callGroq(messages, { jsonMode = false, temperature = 0.4 } = {}) {
+  if (!process.env.GROQ_API_KEY) {
+    throw new Error('Missing GROQ_API_KEY');
+  }
+  const body = {
+    model: modelName,
+    messages,
+    temperature
+  };
+  if (jsonMode) body.response_format = { type: 'json_object' };
+  const r = await fetch(GROQ_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${process.env.GROQ_API_KEY}`
+    },
+    body: JSON.stringify(body)
+  });
+  if (!r.ok) {
+    const errText = await r.text().catch(() => '');
+    throw new Error(`Groq returned ${r.status}: ${errText.slice(0, 200)}`);
+  }
+  const j = await r.json();
+  return (j.choices?.[0]?.message?.content || '').trim();
+}
+
 // =========================================================================
 // SYSTEM PROMPT
-// Edit this to tune Gemini's sentiment behavior.
+// Edit this to tune the model's sentiment behavior.
 // =========================================================================
 const SYSTEM_PROMPT = `You are a financial news analyst. You will receive a JSON object containing:
 - ticker: a stock ticker symbol
@@ -97,7 +124,7 @@ app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
     model: modelName,
-    hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
+    hasGroqKey: Boolean(process.env.GROQ_API_KEY),
     hasFinnhubKey: Boolean(process.env.FINNHUB_API_KEY),
     hasNewsKey: Boolean(process.env.NEWS_API_KEY),
     cachedTickers: [...cache.keys()]
@@ -105,7 +132,7 @@ app.get('/api/health', (_req, res) => {
 });
 
 // Main endpoint: GET /api/ticker/:symbol
-// Returns combined Finnhub price + NewsAPI headlines + Reddit posts + Gemini sentiment.
+// Returns combined Finnhub price + NewsAPI headlines + Reddit posts + LLM sentiment.
 // Add ?force=1 to bypass the cache.
 app.get('/api/ticker/:symbol', async (req, res) => {
   const symbol = String(req.params.symbol || '').trim().toUpperCase();
@@ -134,7 +161,7 @@ app.get('/api/ticker/:symbol', async (req, res) => {
   const company_name = profile?.name || symbol;
   const logo_url = profile?.logo || null;
 
-  const aiAnalysis = await analyzeWithGemini({
+  const aiAnalysis = await analyzeWithLLM({
     ticker: symbol,
     company_name,
     headlines: headlines.items,
@@ -199,19 +226,16 @@ app.post('/api/pulse', async (req, res) => {
     };
   }));
 
-  if (!process.env.GEMINI_API_KEY) {
-    return res.json({ error: 'Missing GEMINI_API_KEY' });
+  if (!process.env.GROQ_API_KEY) {
+    return res.json({ error: 'Missing GROQ_API_KEY' });
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const payload = { tickers, per_ticker: perTicker };
-    const prompt = `${PULSE_PROMPT}\n\nInput:\n${JSON.stringify(payload, null, 2)}`;
-    const response = await ai.models.generateContent({
-      model: modelName,
-      contents: prompt
-    });
-    const text = (response.text || '').trim();
+    const text = await callGroq([
+      { role: 'system', content: PULSE_PROMPT },
+      { role: 'user', content: `Input:\n${JSON.stringify(payload, null, 2)}` }
+    ], { jsonMode: true });
     const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
     try {
       const parsed = JSON.parse(cleaned);
@@ -232,7 +256,7 @@ app.post('/api/pulse', async (req, res) => {
       });
     }
   } catch (e) {
-    return res.status(500).json({ error: cleanGeminiError(e.message) });
+    return res.status(500).json({ error: cleanLLMError(e.message) });
   }
 });
 
@@ -252,11 +276,11 @@ app.post('/api/ask', async (req, res) => {
   if (question.length > 500) {
     return res.status(400).json({ error: 'Question is too long (max 500 chars).' });
   }
-  if (!process.env.GEMINI_API_KEY) {
-    return res.status(500).json({ error: 'Missing GEMINI_API_KEY' });
+  if (!process.env.GROQ_API_KEY) {
+    return res.status(500).json({ error: 'Missing GROQ_API_KEY' });
   }
 
-  // Use cached ticker data when available (it's fresh enough -- 10 min TTL).
+  // Use cached ticker data when available (it's fresh enough -- 60 min TTL).
   // If not cached, do a fresh fetch so the chat still works for new tickers.
   let tickerData = cache.get(symbol)?.data;
   if (!tickerData || cache.get(symbol).expires <= Date.now()) {
@@ -289,33 +313,25 @@ app.post('/api/ask', async (req, res) => {
     recent_reddit: (tickerData.reddit?.items || []).slice(0, 5).map((p) => `${p.title} [r/${p.subreddit}]`)
   };
 
-  // Build the Gemini contents array: system-style preface then history then new question.
-  // @google/genai uses {role, parts:[{text}]} format; "model" for assistant turns.
-  const preface = `${ASK_PROMPT}\n\nCONTEXT FOR ${symbol}:\n${JSON.stringify(context, null, 2)}`;
-  const contents = [
-    { role: 'user', parts: [{ text: preface }] },
-    { role: 'model', parts: [{ text: `Got it -- I have the latest data for ${symbol}. What would you like to know?` }] }
-  ];
+  // Build the OpenAI-style messages array: system prompt + history + new question.
+  const systemMsg = `${ASK_PROMPT}\n\nCONTEXT FOR ${symbol}:\n${JSON.stringify(context, null, 2)}`;
+  const messages = [{ role: 'system', content: systemMsg }];
   for (const turn of history.slice(-10)) {
-    const role = turn.role === 'model' ? 'model' : 'user';
-    const text = String(turn.text || '').slice(0, 1500);
-    if (text) contents.push({ role, parts: [{ text }] });
+    // Translate our internal role names: "model" -> "assistant" for OpenAI/Groq format.
+    const role = turn.role === 'model' || turn.role === 'assistant' ? 'assistant' : 'user';
+    const content = String(turn.text || turn.content || '').slice(0, 1500);
+    if (content) messages.push({ role, content });
   }
-  contents.push({ role: 'user', parts: [{ text: question }] });
+  messages.push({ role: 'user', content: question });
 
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    const response = await ai.models.generateContent({
-      model: modelName,
-      contents
-    });
-    const answer = (response.text || '').trim();
+    const answer = (await callGroq(messages, { temperature: 0.5 })).trim();
     return res.json({
       answer: answer || 'I could not generate a response. Try rephrasing.',
       generated_at: new Date().toISOString()
     });
   } catch (e) {
-    return res.status(500).json({ error: cleanGeminiError(e.message) });
+    return res.status(500).json({ error: cleanLLMError(e.message) });
   }
 });
 
@@ -427,9 +443,9 @@ async function fetchRedditPosts(symbol) {
   }
 }
 
-async function analyzeWithGemini({ ticker, company_name, headlines, reddit_posts }) {
-  if (!process.env.GEMINI_API_KEY) {
-    return { error: 'Missing GEMINI_API_KEY' };
+async function analyzeWithLLM({ ticker, company_name, headlines, reddit_posts }) {
+  if (!process.env.GROQ_API_KEY) {
+    return { error: 'Missing GROQ_API_KEY' };
   }
   if (!headlines.length && !reddit_posts.length) {
     return {
@@ -441,19 +457,16 @@ async function analyzeWithGemini({ ticker, company_name, headlines, reddit_posts
     };
   }
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const payload = {
       ticker,
       company_name,
       headlines: headlines.map((h) => `${h.title} (${h.source})`),
       reddit_posts: reddit_posts.map((p) => `${p.title} [r/${p.subreddit}]`)
     };
-    const prompt = `${SYSTEM_PROMPT}\n\nInput:\n${JSON.stringify(payload, null, 2)}`;
-    const response = await ai.models.generateContent({
-      model: modelName,
-      contents: prompt
-    });
-    const text = (response.text || '').trim();
+    const text = await callGroq([
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: `Input:\n${JSON.stringify(payload, null, 2)}` }
+    ], { jsonMode: true });
     const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
     try {
       const parsed = JSON.parse(cleaned);
@@ -472,7 +485,7 @@ async function analyzeWithGemini({ ticker, company_name, headlines, reddit_posts
       };
     }
   } catch (e) {
-    return { error: cleanGeminiError(e.message) };
+    return { error: cleanLLMError(e.message) };
   }
 }
 
